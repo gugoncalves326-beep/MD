@@ -225,6 +225,18 @@ async function fetchProfile(userId) {
   render();
 }
 
+// Traduz os erros do Supabase (vêm em inglês) para mensagens claras em português.
+function friendlyAuthError(msg) {
+  const m = String(msg || '');
+  if (/error sending .*email|sending .*email/i.test(m)) return 'Não conseguimos enviar o e-mail agora. Tente de novo em alguns minutos; se continuar, fale com a gente pelo WhatsApp.';
+  if (/rate limit|too many requests|after \d+ seconds|security purposes/i.test(m)) return 'Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente de novo.';
+  if (/already registered|already been registered/i.test(m)) return 'Esse e-mail já tem uma conta. Use "Entrar" ou "Esqueci minha senha".';
+  if (/password should be at least|at least \d+ characters/i.test(m)) return 'A senha é curta demais. Use pelo menos 8 caracteres.';
+  if (/weak|pwned|easy to guess/i.test(m)) return 'Essa senha é fraca ou muito comum. Escolha outra.';
+  if (/valid email|invalid format|email address.*invalid/i.test(m)) return 'Esse e-mail não parece válido. Confira se digitou certo.';
+  if (/failed to fetch|network|fetch failed/i.test(m)) return 'Sem conexão com o servidor. Verifique a internet e tente de novo.';
+  return m;
+}
 async function handleLogin(email, password) {
   state.authError = ''; state.authInfo = ''; state.pendingEmail = '';
   const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -235,7 +247,7 @@ async function handleLogin(email, password) {
     } else if (/invalid login/i.test(error.message)) {
       state.authError = 'E-mail ou senha incorretos.';
     } else {
-      state.authError = error.message;
+      state.authError = friendlyAuthError(error.message);
     }
   }
   render();
@@ -245,7 +257,7 @@ async function handleSignup(email, password, nome) {
   state.authError = ''; state.authInfo = ''; state.pendingEmail = '';
   const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { nome }, emailRedirectTo: window.location.origin } });
   if (error) {
-    state.authError = error.message;
+    state.authError = friendlyAuthError(error.message);
   } else if (data && data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
     state.authError = 'Esse e-mail já tem uma conta. Use "Entrar" ou "Esqueci minha senha".';
   } else if (data && data.session) {
@@ -260,16 +272,20 @@ async function handleSignup(email, password, nome) {
 async function resendConfirmation(email) {
   state.authError = ''; state.authInfo = '';
   const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: window.location.origin } });
-  if (error) state.authError = error.message;
+  if (error) state.authError = friendlyAuthError(error.message);
   else state.authInfo = 'E-mail de confirmação reenviado para ' + email + '.';
   render();
 }
 async function handleForgot(email) {
   state.authError = ''; state.authInfo = '';
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-  if (error && /rate|seconds|limit/i.test(error.message)) state.authError = 'Aguarde um pouco antes de pedir outro e-mail.';
-  else state.authInfo = 'Se esse e-mail tiver uma conta, enviamos um link para você criar uma nova senha. (Olhe também o spam.)';
-  state.authMode = 'login';
+  if (error) {
+    state.authError = friendlyAuthError(error.message);
+    state.authMode = 'forgot';
+  } else {
+    state.authInfo = 'Se esse e-mail tiver uma conta, enviamos um link para você criar uma nova senha. (Olhe também o spam.)';
+    state.authMode = 'login';
+  }
   render();
 }
 function checkNewPassword(pw, confirm) {
@@ -281,7 +297,7 @@ async function handleRecoverySubmit(pw, confirm) {
   const problem = checkNewPassword(pw, confirm);
   if (problem) { state.authError = problem; render(); return; }
   const { error } = await supabase.auth.updateUser({ password: pw });
-  if (error) { state.authError = error.message; render(); return; }
+  if (error) { state.authError = friendlyAuthError(error.message); render(); return; }
   state.authError = ''; state.recovering = false; state.view = 'home';
   history.replaceState(null, '', window.location.pathname);
   alert('Senha atualizada! Você já está logado(a).');
@@ -293,7 +309,7 @@ async function changePassword(current, pw, confirm) {
   const check = await supabase.auth.signInWithPassword({ email: state.profile.email, password: current });
   if (check.error) { alert('A senha atual está incorreta.'); return false; }
   const { error } = await supabase.auth.updateUser({ password: pw });
-  if (error) { alert('Erro ao alterar a senha: ' + error.message); return false; }
+  if (error) { alert('Erro ao alterar a senha: ' + friendlyAuthError(error.message)); return false; }
   logActivity('Senha alterada', 'conta', null, null);
   alert('Senha alterada com sucesso!');
   return true;
