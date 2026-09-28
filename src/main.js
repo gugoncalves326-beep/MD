@@ -64,6 +64,7 @@ const state = {
   myProjects: [], // projetos do Cliente logado
   clientLoaded: false,
   _clientLoading: false,
+  staffOnSite: false, // equipe (Marketing/Programador) olhando o site público como o cliente vê
   pModal: null, // { id, idx } — trabalho do portfólio aberto em destaque
   navOpen: false,
   sideOpen: false,
@@ -220,6 +221,7 @@ async function fetchProfile(userId) {
   } else {
     state.profile = data;
     state.view = 'home';
+    state.staffOnSite = false;
     if (data.role === 'cliente') loadClientAll();
     if (data.role === 'marketing') loadSiteContent();
   }
@@ -319,6 +321,7 @@ async function changePassword(current, pw, confirm) {
 async function handleLogout() {
   await supabase.auth.signOut();
   state.view = 'home';
+  state.staffOnSite = false;
   state.dashView = 'painel';
   state.crmLoaded = false;
   state.projectsLoaded = false;
@@ -1107,7 +1110,10 @@ function headerTools() {
 function header(active) {
   const link = (v, label) => `<a class="${active === v ? 'active' : ''}" data-nav="${v}">${label}</a>`;
   const client = isClientSession();
-  const accountArea = client
+  const staff = isStaffSession();
+  const accountArea = staff
+    ? `<a class="btn purple" data-go-panel>Meu painel</a><a class="btn ghost" data-nav="logout">Sair</a>`
+    : client
     ? `${link('meuprojeto', 'Meus Projetos')}${link('propostas', 'Propostas')}${link('financeiro', 'Financeiro')}${link('chamados', 'Chamados')}${link('calendario', 'Calendário')}${link('solicitar', 'Solicitar Orçamento')}<a class="btn ghost" data-nav="logout">Sair</a>`
     : `<a class="btn purple" data-nav="contato">Solicitar orçamento</a><a class="btn ghost" data-nav="entrar">Entrar</a>`;
   return `<header class="site"><div class="wrap navrow">
@@ -1122,7 +1128,7 @@ function header(active) {
 }
 
 function footer() {
-  const lastLink = isClientSession() ? '<a data-nav="meuprojeto">Meus Projetos</a><a data-nav="conta">Minha conta</a>' : '<a data-nav="entrar">Login do cliente</a>';
+  const lastLink = isStaffSession() ? '<a data-go-panel>Meu painel</a>' : isClientSession() ? '<a data-nav="meuprojeto">Meus Projetos</a><a data-nav="conta">Minha conta</a>' : '<a data-nav="entrar">Login do cliente</a>';
   return `<footer class="site"><div class="wrap">
     <div class="foot-grid">
       <div><a class="brand" data-nav="home">M.D<span class="dot"></span>Criações</a><p style="margin-top:12px">Criação de sites e serviços digitais sob medida, do briefing à publicação.</p></div>
@@ -1266,6 +1272,7 @@ function pageContato() {
   <section class="page-hero"><div class="wrap"><span class="eyebrow">Solicite seu orçamento</span><h1>Conta pra gente o que você precisa.</h1></div></section>
   <section style="padding-top:6px"><div class="wrap contact-grid">
     <div class="form-card">
+      ${isStaffSession() ? '<div class="ok-msg">Você está vendo o site como um visitante. Para testar o pedido de orçamento, entre com uma conta de cliente.</div>' : ''}
       <h3 style="margin-top:0">Crie sua conta pra solicitar</h3>
       <p>Pra conseguirmos responder certinho — e você acompanhar o andamento do pedido depois — é só criar uma conta rápida, leva menos de um minuto.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">
@@ -2287,7 +2294,8 @@ function renderDashboard() {
       <div class="logo">M.D Criações</div>
       <nav>
         ${nav.map(([k, l]) => `<a class="${state.dashView === k ? 'active' : ''}" data-nav="${k}">${l}</a>`).join('')}
-        <a data-nav="logout" style="margin-top:18px;color:#ffb4b4">Sair</a>
+        <a data-view-site style="margin-top:14px;border-top:1px solid rgba(255,255,255,.14);border-radius:0 0 9px 9px;padding-top:14px">🌐 Ver o site</a>
+        <a data-nav="logout" style="color:#ffb4b4">Sair</a>
       </nav>
     </div>
     <div class="dash-main">
@@ -2324,7 +2332,7 @@ function render() {
     return;
   }
   if (state.recovering && state.session) { renderRecovery(); return; }
-  if (state.session && state.profile && (state.profile.role === 'marketing' || state.profile.role === 'programador')) {
+  if (isStaffSession() && !state.staffOnSite) {
     renderDashboard();
     return;
   }
@@ -2370,7 +2378,8 @@ function renderSiteShell() {
     pages.calendario = () => wrap(viewCalendario());
     pages.conta = () => wrap(viewConta());
   }
-  const view = pages[state.view] ? state.view : 'home';
+  let view = pages[state.view] ? state.view : 'home';
+  if (isStaffSession() && view === 'entrar') view = 'home'; // equipe já está logada
   const body = pages[view] || pageHome;
   document.getElementById('app').innerHTML = `${header(view)}${body()}${footer()}`;
 }
@@ -2607,6 +2616,15 @@ function setupEvents() {
     if (e.target.closest('[data-toggle-notif]')) { toggleNotif(); return; }
     if (e.target.closest('[data-toggle-search]')) { toggleSearch(); return; }
 
+    if (e.target.closest('[data-view-site]')) {
+      state.staffOnSite = true; state.view = 'home'; state.sideOpen = false; state.notifOpen = false; state.searchOpen = false;
+      window.scrollTo(0, 0); render(); return;
+    }
+    if (e.target.closest('[data-go-panel]')) {
+      state.staffOnSite = false; state.navOpen = false; if (state.pModal) closeModal();
+      window.scrollTo(0, 0); render(); return;
+    }
+
     const nav = e.target.closest('[data-nav]');
     if (nav) {
       if (state.pModal) closeModal();
@@ -2617,8 +2635,8 @@ function setupEvents() {
       state.searchOpen = false;
       state.navOpen = false;
       state.sideOpen = false;
-      const isStaff = state.session && state.profile && (state.profile.role === 'marketing' || state.profile.role === 'programador');
-      if (isStaff) {
+      const inDashboard = isStaffSession() && !state.staffOnSite;
+      if (inDashboard) {
         state.dashView = v;
       } else {
         if (v === 'contato' && isClientSession()) v = 'solicitar';

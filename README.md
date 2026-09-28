@@ -69,6 +69,8 @@ serviços, depoimentos, WhatsApp, e-mail e Instagram são editados pelo
 Marketing em **Conteúdo do site**, sem mexer em código. O formulário de
 orçamento exige login e cria um Lead de verdade.
 
+**Equipe (Marketing/Admin e Programador)**: no menu do painel, **Ver o site** mostra o site como o cliente vê (Home, Sobre, Serviços, Portfólio); lá em cima aparece **Meu painel** para voltar, na mesma tela em que estava.
+
 **Marketing**: Leads (Kanban, editar, excluir, converter em cliente),
 Clientes (editar, excluir), Projetos (editar, excluir, briefing completo,
 tarefas com renomear/excluir, comentários, **arquivos** do cliente /

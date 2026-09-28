@@ -131,7 +131,7 @@ input,select,textarea{width:100%;padding:11px 13px;border:1px solid var(--line);
 textarea{resize:vertical}
 .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px}
 @media(max-width:860px){.contact-grid{grid-template-columns:1fr}}
-.ok-msg{background:#EAF7EE;border:1px solid #B7E4C3;color:#1E6B34;padding:14px 16px;border-radius:12px;font-size:14px;display:none}
+.ok-msg{background:#EAF7EE;border:1px solid #B7E4C3;color:#1E6B34;padding:14px 16px;border-radius:12px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 
 .page-hero{padding:50px 0 20px}
 .page-hero h1{font-size:38px}
