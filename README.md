@@ -28,6 +28,7 @@ npm install
      projeto, Automação da proposta, Briefing, Conteúdo editável, Usuários)
    - `supabase-migration-08-admins.sql` (Gustavo também é Admin + trava do cargo)
    - `supabase-migration-09-seguranca.sql` (e-mail confirmado, leads só com login)
+   - `supabase-migration-10-portfolio-fotos.sql` (fotos no portfólio)
 3. Em Project Settings → API Keys, copie a "Project URL" (em Data API) e a
    chave pública (Publishable key `sb_publishable_...`, ou a `anon public`
    na aba "Legacy API Keys").
@@ -63,7 +64,7 @@ indevida.
 
 ## O que já funciona
 
-**Site público** (Home, Sobre, Serviços, Portfólio, Contato) — os textos,
+**Site público** (Home, Sobre, Serviços, Portfólio, Contato). No Portfólio, clicar num trabalho abre a foto em destaque no centro da tela (com galeria) e os botões **Fazer meu orçamento** e **Visitar site** (que abre o endereço cadastrado no trabalho) — os textos,
 serviços, depoimentos, WhatsApp, e-mail e Instagram são editados pelo
 Marketing em **Conteúdo do site**, sem mexer em código. O formulário de
 orçamento exige login e cria um Lead de verdade.
@@ -73,7 +74,7 @@ Clientes (editar, excluir), Projetos (editar, excluir, briefing completo,
 tarefas com renomear/excluir, comentários, **arquivos** do cliente /
 internos / finais, histórico do projeto), Propostas, Financeiro (vendas e
 gastos com adicionar e excluir, pagamentos parciais, "Marcar pago"),
-Relatórios (CSV e PDF), Portfólio, Calendário, Chamados, **Histórico** de
+Relatórios (CSV e PDF), Portfólio (com **fotos**: capa e galeria, editar e remover), Calendário, Chamados, **Histórico** de
 ações, **Usuários**, **Conteúdo do site**, sino de notificações e busca.
 
 **Programador**: Projetos (sem valores), Chamados, Calendário e Histórico

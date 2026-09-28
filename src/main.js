@@ -64,6 +64,7 @@ const state = {
   myProjects: [], // projetos do Cliente logado
   clientLoaded: false,
   _clientLoading: false,
+  pModal: null, // { id, idx } — trabalho do portfólio aberto em destaque
   navOpen: false,
   sideOpen: false,
   authInfo: '',
@@ -731,21 +732,103 @@ async function loadPortfolio() {
   state.portfolioLoaded = true;
   render();
 }
-async function addPortfolioItem(fields) {
-  const payload = {
-    nome: fields.nome,
-    cliente_nome: fields.cliente_nome || '',
-    categoria: fields.categoria || '',
-    descricao: fields.descricao || '',
-    tecnologias: fields.tecnologias || '',
-    link: fields.link || '',
-    data: fields.data || null,
-    cor: fields.cor || PORT_COLORS[0],
-  };
-  const { error } = await supabase.from('portfolio').insert(payload);
-  if (error) { alert('Erro ao salvar: ' + error.message); return; }
-  closeModal();
-  await loadPortfolio();
+const PORT_BUCKET = 'portfolio-images';
+const MAX_GALERIA = 8;
+
+function imgUrl(path) {
+  if (!path || !supabase) return '';
+  return supabase.storage.from(PORT_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+function portfolioImages(p) {
+  return [p.imagem_path, ...(Array.isArray(p.galeria) ? p.galeria : [])].filter(Boolean).map(imgUrl).filter(Boolean);
+}
+// Só endereços http(s). "www.site.com" vira "https://www.site.com". Qualquer outra coisa
+// (javascript:, data:, texto solto) é descartada.
+function normalizeUrl(u) {
+  const v = String(u || '').trim();
+  if (!v) return '';
+  if (/^https?:\/\/[^\s]+$/i.test(v)) return v;
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+([\/?#][^\s]*)?$/i.test(v)) return 'https://' + v;
+  return '';
+}
+// Fotos de celular chegam com 5 a 12 MB. Reduzimos para no máximo 1600px, em JPEG,
+// antes de enviar — o site carrega bem mais rápido.
+async function resizeImage(file, maxDim = 1600, quality = 0.85) {
+  if (!/^image\//.test(file.type) || /svg/i.test(file.type)) throw new Error('"' + file.name + '" não é uma imagem válida (use JPG, PNG ou WebP).');
+  if (file.size > 25 * 1024 * 1024) throw new Error('"' + file.name + '" é muito grande (máximo 25 MB).');
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch (e) { throw new Error('Não consegui abrir "' + file.name + '". Use uma foto em JPG, PNG ou WebP.'); }
+  const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bmp, 0, 0, w, h);
+  if (bmp.close) bmp.close();
+  const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
+  if (!blob) throw new Error('Não foi possível processar "' + file.name + '".');
+  return blob;
+}
+async function uploadPortfolioImage(file, kind) {
+  const blob = await resizeImage(file);
+  const path = kind + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+  const { error } = await supabase.storage.from(PORT_BUCKET).upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
+  if (error) throw new Error('Erro no envio da foto: ' + error.message);
+  return path;
+}
+async function savePortfolio(id, fd, form) {
+  const btn = form && form.querySelector('button[type="submit"]');
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+  const uploaded = [];
+  try {
+    const existing = id ? state.portfolio.find((p) => p.id === id) : null;
+    let imagem_path = existing ? existing.imagem_path || null : null;
+    let galeria = existing && Array.isArray(existing.galeria) ? [...existing.galeria] : [];
+    const toRemove = [];
+
+    const rawLink = String(fd.get('link') || '').trim();
+    const link = normalizeUrl(rawLink);
+    if (rawLink && !link) throw new Error('O endereço do site não parece válido. Exemplo: https://www.meusite.com.br');
+
+    if (fd.get('rm_capa') && imagem_path) { toRemove.push(imagem_path); imagem_path = null; }
+    fd.getAll('rm_galeria').forEach((pth) => { if (galeria.includes(pth)) { galeria = galeria.filter((x) => x !== pth); toRemove.push(pth); } });
+
+    const capa = fd.get('capa');
+    const novas = fd.getAll('galeria').filter((f) => f && f.size > 0);
+    if (galeria.length + novas.length > MAX_GALERIA) throw new Error('A galeria aceita no máximo ' + MAX_GALERIA + ' fotos (além da capa).');
+
+    if (capa && capa.size > 0) {
+      if (imagem_path) toRemove.push(imagem_path);
+      imagem_path = await uploadPortfolioImage(capa, 'capa');
+      uploaded.push(imagem_path);
+    }
+    for (const f of novas) { const p = await uploadPortfolioImage(f, 'galeria'); uploaded.push(p); galeria.push(p); }
+
+    const payload = {
+      nome: fd.get('nome'),
+      cliente_nome: fd.get('cliente_nome') || '',
+      categoria: fd.get('categoria') || '',
+      descricao: fd.get('descricao') || '',
+      tecnologias: fd.get('tecnologias') || '',
+      link,
+      data: fd.get('data') || null,
+      cor: fd.get('cor') || PORT_COLORS[0],
+      imagem_path,
+      galeria,
+    };
+    const { error } = id ? await supabase.from('portfolio').update(payload).eq('id', id) : await supabase.from('portfolio').insert(payload);
+    if (error) throw new Error(error.message);
+    if (toRemove.length) await supabase.storage.from(PORT_BUCKET).remove(toRemove);
+    logActivity(id ? 'Portfólio editado' : 'Portfólio: novo trabalho', 'portfolio', id, payload.nome);
+    closeModal();
+    await loadPortfolio();
+  } catch (e) {
+    if (uploaded.length) await supabase.storage.from(PORT_BUCKET).remove(uploaded);
+    alert('Não foi possível salvar: ' + (e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
 }
 async function updatePortfolioItem(id, patch) {
   const { error } = await supabase.from('portfolio').update(patch).eq('id', id);
@@ -753,9 +836,12 @@ async function updatePortfolioItem(id, patch) {
   await loadPortfolio();
 }
 async function deletePortfolioItem(id) {
-  if (!confirm('Remover este trabalho do portfólio?')) return;
+  const p = state.portfolio.find((x) => x.id === id);
+  if (!confirm('Remover "' + (p ? p.nome : 'este trabalho') + '" do portfólio, com todas as fotos?')) return;
   const { error } = await supabase.from('portfolio').delete().eq('id', id);
   if (error) { alert('Erro ao remover: ' + error.message); return; }
+  const paths = p ? [p.imagem_path, ...(Array.isArray(p.galeria) ? p.galeria : [])].filter(Boolean) : [];
+  if (paths.length) await supabase.storage.from(PORT_BUCKET).remove(paths);
   await loadPortfolio();
 }
 
@@ -998,6 +1084,8 @@ function openModal(html) {
 }
 function closeModal() {
   document.getElementById('modal-root').innerHTML = '';
+  state.pModal = null;
+  document.body.classList.remove('modal-open');
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,7 +1158,7 @@ function pageHome() {
   </div></section>
   <section><div class="wrap">
     <div class="section-head"><span class="eyebrow">Trabalhos recentes</span><h2>Projetos que já colocamos no ar</h2></div>
-    <div class="port-grid">${items.length ? items.map((p) => portfolioCard(p, true)).join('') : '<p class="small">Nenhum trabalho publicado ainda.</p>'}</div>
+    <div class="port-grid">${items.length ? items.map((p) => portfolioCard(p)).join('') : '<p class="small">Nenhum trabalho publicado ainda.</p>'}</div>
   </div></section>
   ${quotes.length ? `<section><div class="wrap">
     <div class="section-head"><span class="eyebrow">Depoimentos</span><h2>O que dizem os clientes</h2></div>
@@ -1109,8 +1197,56 @@ function pageServicos() {
 const PORT_CATS = ['Landing Page', 'Site institucional', 'Delivery para lojas', 'Site de vendas', 'Site personalizado'];
 const PORT_COLORS = ['#6C2BD9', '#15121C', '#B08A2E', '#3E1670', '#1E6B34', '#9A3412'];
 
-function portfolioCard(p, clickable) {
-  return `<${clickable ? 'a class="port-card" data-nav="contato"' : 'div class="port-card"'}><div class="port-thumb" style="background:${esc(p.cor || '#6C2BD9')}">${esc(p.nome)}</div><div class="port-body"><span class="cat">${esc(p.categoria || '')}</span><p style="margin:0">${esc(p.descricao || '')}</p></div></${clickable ? 'a' : 'div'}>`;
+function portfolioCard(p) {
+  const imgs = portfolioImages(p);
+  const cover = imgs[0];
+  return `<a class="port-card" data-open-portfolio="${p.id}" role="button" tabindex="0" aria-label="Ver ${esc(p.nome)}">
+    <div class="port-thumb ${cover ? 'hasimg' : ''}" style="background:${cover ? `#e9e6f2 url('${esc(cover)}') center/cover no-repeat` : esc(p.cor || '#6C2BD9')}">${cover ? '' : esc(p.nome)}${imgs.length > 1 ? `<span class="port-count">📷 ${imgs.length}</span>` : ''}</div>
+    <div class="port-body"><span class="cat">${esc(p.categoria || '')}</span>${cover ? `<b class="pname">${esc(p.nome)}</b>` : ''}<p style="margin:0">${esc(p.descricao || '')}</p></div>
+  </a>`;
+}
+
+function renderPortfolioModal() {
+  const st = state.pModal;
+  const p = st && state.portfolio.find((x) => x.id === st.id);
+  if (!p) { closeModal(); return; }
+  const imgs = portfolioImages(p);
+  const n = imgs.length;
+  const idx = n ? ((st.idx % n) + n) % n : 0;
+  const link = normalizeUrl(p.link);
+  document.getElementById('modal-root').innerHTML = `
+  <div class="pmbg" data-close-modal>
+    <div class="pm" role="dialog" aria-modal="true" aria-label="${esc(p.nome)}">
+      <button class="pmclose" data-close-modal aria-label="Fechar">✕</button>
+      <div class="pmimg">
+        ${n ? `<img src="${esc(imgs[idx])}" alt="${esc(p.nome)}">` : `<div class="pmfallback" style="background:${esc(p.cor || '#6C2BD9')}">${esc(p.nome)}</div>`}
+        ${n > 1 ? `<button class="pmnav prev" data-pm-step="-1" aria-label="Foto anterior">‹</button><button class="pmnav next" data-pm-step="1" aria-label="Próxima foto">›</button><span class="pmcount">${idx + 1} / ${n}</span>` : ''}
+      </div>
+      ${n > 1 ? `<div class="pmthumbs">${imgs.map((u, i) => `<img src="${esc(u)}" alt="" class="${i === idx ? 'on' : ''}" data-pm-thumb="${i}">`).join('')}</div>` : ''}
+      <div class="pmbody">
+        <span class="cat">${esc(p.categoria || '')}</span>
+        <h3>${esc(p.nome)}</h3>
+        ${p.descricao ? `<p>${esc(p.descricao)}</p>` : ''}
+        ${p.tecnologias ? `<p class="small">Tecnologias: ${esc(p.tecnologias)}</p>` : ''}
+        <div class="pmactions">
+          <a class="btn purple" data-nav="contato">Fazer meu orçamento</a>
+          ${link ? `<a class="btn line" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Visitar site ↗</a>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function openPortfolioModal(id) {
+  state.pModal = { id, idx: 0 };
+  document.body.classList.add('modal-open');
+  renderPortfolioModal();
+  const close = document.querySelector('.pmclose');
+  if (close) close.focus();
+}
+function pmStep(delta) {
+  if (!state.pModal) return;
+  state.pModal.idx += delta;
+  renderPortfolioModal();
 }
 
 function pagePortfolio() {
@@ -1121,7 +1257,7 @@ function pagePortfolio() {
   <section class="page-hero"><div class="wrap"><span class="eyebrow">Portfólio</span><h1>Trabalhos que já colocamos no ar.</h1></div></section>
   <section style="padding-top:6px"><div class="wrap">
     <div class="filters">${cats.map((c) => `<button class="chip ${state.portfolioFilter === c ? 'active' : ''}" data-filter="${c}">${c === 'all' ? 'Todos' : esc(c)}</button>`).join('')}</div>
-    <div class="port-grid">${list.map((p) => portfolioCard(p, true)).join('') || '<p class="small">Nenhum trabalho publicado ainda.</p>'}</div>
+    <div class="port-grid">${list.map((p) => portfolioCard(p)).join('') || '<p class="small">Nenhum trabalho publicado ainda.</p>'}</div>
   </div></section>`;
 }
 
@@ -1446,40 +1582,59 @@ function viewPropostaDetalhe(readOnly) {
 
 function viewPortfolioAdmin() {
   return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-    <p class="small" style="margin:0">Trabalhos marcados como "Exibir no site" aparecem na página pública de Portfólio.</p>
+    <p class="small" style="margin:0">Trabalhos marcados como "Exibir no site" aparecem na página pública de Portfólio. Ao clicar num trabalho, o visitante vê a foto em destaque.</p>
     <button class="dash-btn" data-open-portfolio-modal>+ Novo Trabalho</button>
   </div>
   <div class="grid g3" style="margin-top:16px;grid-template-columns:repeat(3,1fr)">
-  ${state.portfolio.map((p) => `
+  ${state.portfolio.map((p) => {
+    const imgs = portfolioImages(p);
+    const link = normalizeUrl(p.link);
+    return `
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="height:90px;background:${esc(p.cor || '#6C2BD9')};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700">${esc(p.nome)}</div>
+      <div style="height:120px;background:${imgs[0] ? `#e9e6f2 url('${esc(imgs[0])}') center/cover no-repeat` : esc(p.cor || '#6C2BD9')};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;text-align:center;padding:6px">${imgs[0] ? '' : esc(p.nome)}</div>
       <div style="padding:14px">
-        <span class="small">${esc(p.categoria || '')}${p.cliente_nome ? ' · ' + esc(p.cliente_nome) : ''}</span>
+        <b>${esc(p.nome)}</b>
+        <div class="small">${esc(p.categoria || '')}${p.cliente_nome ? ' · ' + esc(p.cliente_nome) : ''}${imgs.length ? ' · 📷 ' + imgs.length : ' · sem foto'}</div>
         <p style="margin:6px 0">${esc(p.descricao || '')}</p>
         ${p.tecnologias ? `<div class="small">Tecnologias: ${esc(p.tecnologias)}</div>` : ''}
-        ${p.link ? `<div class="small"><a class="link" href="${esc(p.link)}" target="_blank">Ver site ↗</a></div>` : ''}
+        ${link ? `<div class="small"><a class="link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Ver site ↗</a></div>` : ''}
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">
           <label class="small" style="display:flex;align-items:center;gap:5px;margin:0"><input type="checkbox" style="width:auto;margin:0" ${p.destaque ? 'checked' : ''} data-portfolio-toggle="destaque" data-portfolio-id="${p.id}"> Destaque</label>
           <label class="small" style="display:flex;align-items:center;gap:5px;margin:0"><input type="checkbox" style="width:auto;margin:0" ${p.exibir_publico ? 'checked' : ''} data-portfolio-toggle="exibir_publico" data-portfolio-id="${p.id}"> Exibir no site</label>
         </div>
-        <div style="margin-top:8px"><a class="link" style="color:#e5484d" data-delete-portfolio="${p.id}">Remover</a></div>
+        <div style="margin-top:8px"><a class="link" data-edit-portfolio="${p.id}">Editar / fotos</a> · <a class="link" style="color:#e5484d" data-delete-portfolio="${p.id}">Remover</a></div>
       </div>
-    </div>`).join('') || '<p class="small">Nenhum trabalho cadastrado ainda.</p>'}
+    </div>`;
+  }).join('') || '<p class="small">Nenhum trabalho cadastrado ainda.</p>'}
   </div>`;
 }
-function modalNovoPortfolio() {
-  openModal(`<button class="close" data-close-modal>✕</button><h3>Novo Trabalho no Portfólio</h3>
-  <form id="portfolioForm">
-    <label>Nome do projeto*</label><input name="nome" required>
-    <label>Cliente (opcional)</label><input name="cliente_nome">
-    <label>Categoria</label><select name="categoria">${PORT_CATS.map((c) => `<option>${c}</option>`).join('')}</select>
-    <label>Descrição</label><textarea name="descricao" rows="2"></textarea>
-    <label>Tecnologias</label><input name="tecnologias" placeholder="Ex: HTML, CSS, WhatsApp API">
-    <label>Link do site</label><input name="link" placeholder="https://">
-    <label>Data</label><input name="data" type="date">
-    <label>Cor da capa</label>
-    <div style="display:flex;gap:8px;margin-bottom:10px">${PORT_COLORS.map((c, i) => `<label style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;display:inline-block;position:relative"><input type="radio" name="cor" value="${c}" style="opacity:0;position:absolute;inset:0" ${i === 0 ? 'checked' : ''}></label>`).join('')}</div>
-    <button class="dash-btn" type="submit" style="width:100%;justify-content:center">Adicionar ao Portfólio</button>
+function modalNovoPortfolio(p) {
+  p = p || {};
+  const cats = PORT_CATS.includes(p.categoria) || !p.categoria ? PORT_CATS : [...PORT_CATS, p.categoria];
+  const gal = Array.isArray(p.galeria) ? p.galeria : [];
+  const capaUrl = imgUrl(p.imagem_path);
+  openModal(`<button class="close" data-close-modal>✕</button><h3>${p.id ? 'Editar trabalho' : 'Novo trabalho no portfólio'}</h3>
+  <form id="portfolioForm" data-portfolio-id="${esc(p.id || '')}">
+    <label>Nome do projeto*</label><input name="nome" required value="${esc(p.nome || '')}">
+    <label>Cliente (opcional)</label><input name="cliente_nome" value="${esc(p.cliente_nome || '')}">
+    <label>Categoria</label><select name="categoria">${cats.map((c) => `<option ${c === p.categoria ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+    <label>Descrição</label><textarea name="descricao" rows="2">${esc(p.descricao || '')}</textarea>
+    <label>Tecnologias</label><input name="tecnologias" placeholder="Ex: HTML, CSS, WhatsApp API" value="${esc(p.tecnologias || '')}">
+    <label>Endereço do site (o botão "Visitar site" abre este link)</label><input name="link" placeholder="https://www.meusite.com.br" value="${esc(p.link || '')}">
+    <label>Data</label><input name="data" type="date" value="${esc(p.data || '')}">
+
+    <label>Foto de capa (aparece no cartão e em destaque)</label>
+    ${capaUrl ? `<div class="pthumb"><img src="${esc(capaUrl)}" alt=""><label class="small"><input type="checkbox" name="rm_capa" value="1" style="width:auto;margin:0"> remover a capa atual</label></div>` : ''}
+    <input type="file" name="capa" accept="image/*">
+
+    <label>Fotos da galeria (até ${MAX_GALERIA})</label>
+    ${gal.length ? `<div class="pthumbs">${gal.map((g) => `<div class="pthumb"><img src="${esc(imgUrl(g))}" alt=""><label class="small"><input type="checkbox" name="rm_galeria" value="${esc(g)}" style="width:auto;margin:0"> remover</label></div>`).join('')}</div>` : ''}
+    <input type="file" name="galeria" accept="image/*" multiple>
+    <p class="small" style="margin:-8px 0 12px">As fotos são reduzidas automaticamente para carregar rápido no site.</p>
+
+    <label>Cor da capa (usada quando não há foto)</label>
+    <div style="display:flex;gap:8px;margin-bottom:10px">${PORT_COLORS.map((c, i) => `<label style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;display:inline-block;position:relative;${(p.cor ? p.cor === c : i === 0) ? 'outline:3px solid #FFC93C;outline-offset:2px' : ''}"><input type="radio" name="cor" value="${c}" style="opacity:0;position:absolute;inset:0" ${(p.cor ? p.cor === c : i === 0) ? 'checked' : ''}></label>`).join('')}</div>
+    <button class="dash-btn" type="submit" style="width:100%;justify-content:center">${p.id ? 'Salvar alterações' : 'Adicionar ao portfólio'}</button>
   </form>`);
 }
 
@@ -2262,6 +2417,14 @@ function setupEvents() {
     if (e.target.closest('[data-open-lead-modal]')) { modalNovoLead(); return; }
     if (e.target.closest('[data-open-client-modal]')) { modalNovoCliente(); return; }
     if (e.target.closest('[data-open-portfolio-modal]')) { modalNovoPortfolio(); return; }
+    const editPortBtn = e.target.closest('[data-edit-portfolio]');
+    if (editPortBtn) { const p = state.portfolio.find((x) => x.id === editPortBtn.dataset.editPortfolio); if (p) modalNovoPortfolio(p); return; }
+    const openPortBtn = e.target.closest('[data-open-portfolio]');
+    if (openPortBtn) { openPortfolioModal(openPortBtn.dataset.openPortfolio); return; }
+    const pmStepBtn = e.target.closest('[data-pm-step]');
+    if (pmStepBtn) { pmStep(Number(pmStepBtn.dataset.pmStep)); return; }
+    const pmThumb = e.target.closest('[data-pm-thumb]');
+    if (pmThumb) { state.pModal.idx = Number(pmThumb.dataset.pmThumb); renderPortfolioModal(); return; }
 
     const deletePortBtn = e.target.closest('[data-delete-portfolio]');
     if (deletePortBtn) { deletePortfolioItem(deletePortBtn.dataset.deletePortfolio); return; }
@@ -2446,6 +2609,7 @@ function setupEvents() {
 
     const nav = e.target.closest('[data-nav]');
     if (nav) {
+      if (state.pModal) closeModal();
       let v = nav.dataset.nav;
       if (v === 'logout') { handleLogout(); return; }
       if (nav.dataset.authmodeTarget) { state.authMode = nav.dataset.authmodeTarget; state.authError = ''; }
@@ -2504,7 +2668,7 @@ function setupEvents() {
     } else if (form.id === 'proposalForm') {
       await addProposal(Object.fromEntries(fd.entries()));
     } else if (form.id === 'portfolioForm') {
-      await addPortfolioItem(Object.fromEntries(fd.entries()));
+      await savePortfolio(form.dataset.portfolioId || null, fd, form);
     } else if (form.id === 'saleForm') {
       await addSale(Object.fromEntries(fd.entries()));
     } else if (form.id === 'paymentForm') {
@@ -2563,6 +2727,16 @@ function setupEvents() {
     if (ticketStatusSel) {
       updateTicketStatus(ticketStatusSel.dataset.ticketStatus, ticketStatusSel.value);
     }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (state.pModal) {
+      if (e.key === 'Escape') closeModal();
+      else if (e.key === 'ArrowRight') pmStep(1);
+      else if (e.key === 'ArrowLeft') pmStep(-1);
+      return;
+    }
+    if (e.key === 'Enter' && e.target && e.target.matches && e.target.matches('[data-open-portfolio]')) openPortfolioModal(e.target.dataset.openPortfolio);
   });
 
   document.body.addEventListener('input', (e) => {

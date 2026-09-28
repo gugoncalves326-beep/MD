@@ -319,3 +319,55 @@ div[style*="overflow-x:auto"]{-webkit-overflow-scrolling:touch}
 @media(max-width:400px){
   .hdr-tools .notifbadge{top:-2px;right:-2px}
 }
+
+/* ===================== PORTFÓLIO: foto no cartão + tela de destaque ===================== */
+.port-card{cursor:pointer;transition:transform .18s ease,box-shadow .18s ease}
+.port-card:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(60,20,120,.14)}
+.port-card:focus-visible{outline:3px solid var(--purple);outline-offset:2px}
+.port-thumb{position:relative}
+.port-thumb.hasimg{height:180px}
+.port-count{position:absolute;right:8px;bottom:8px;background:rgba(15,10,25,.72);color:#fff;font-size:12px;font-weight:600;padding:3px 9px;border-radius:20px}
+.port-body .pname{display:block;font-size:16px;margin:2px 0 4px;color:var(--ink)}
+
+body.modal-open{overflow:hidden}
+.pmbg{position:fixed;inset:0;background:rgba(12,8,22,.78);backdrop-filter:blur(3px);z-index:90;display:flex;align-items:center;justify-content:center;padding:20px;animation:pmFade .18s ease}
+.pm{position:relative;background:var(--white);border-radius:20px;width:100%;max-width:900px;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:0 30px 80px rgba(0,0,0,.5);animation:pmIn .24s cubic-bezier(.2,.9,.3,1.1)}
+.pmclose{position:absolute;top:10px;right:10px;z-index:3;width:40px;height:40px;border-radius:50%;border:none;background:rgba(15,10,25,.7);color:#fff;font-size:18px;cursor:pointer}
+.pmclose:hover{background:rgba(15,10,25,.9)}
+.pmimg{position:relative;background:#14101d;display:flex;align-items:center;justify-content:center;min-height:200px;max-height:62vh;overflow:hidden;border-radius:20px 20px 0 0}
+.pmimg img{display:block;max-width:100%;max-height:62vh;width:auto;height:auto;object-fit:contain}
+.pmfallback{width:100%;min-height:260px;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;text-align:center;padding:20px}
+.pmnav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:none;background:rgba(15,10,25,.65);color:#fff;font-size:28px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding-bottom:3px}
+.pmnav:hover{background:rgba(15,10,25,.9)}
+.pmnav.prev{left:12px}.pmnav.next{right:12px}
+.pmcount{position:absolute;left:12px;bottom:10px;background:rgba(15,10,25,.7);color:#fff;font-size:12px;padding:3px 10px;border-radius:20px}
+.pmthumbs{display:flex;gap:8px;padding:10px 16px 0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pmthumbs img{width:64px;height:48px;object-fit:cover;border-radius:8px;cursor:pointer;opacity:.55;border:2px solid transparent;flex-shrink:0}
+.pmthumbs img.on{opacity:1;border-color:var(--purple)}
+.pmbody{padding:18px 24px 24px}
+.pmbody h3{font-size:24px;margin:2px 0 8px}
+.pmbody p{max-width:none}
+.pmactions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+.pmactions .btn{flex:0 1 auto}
+@keyframes pmIn{from{opacity:0;transform:scale(.92) translateY(14px)}to{opacity:1;transform:none}}
+@keyframes pmFade{from{opacity:0}to{opacity:1}}
+
+/* miniaturas dentro do formulário de edição */
+.pthumbs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.pthumb{display:inline-flex;flex-direction:column;gap:4px;margin-bottom:8px;max-width:110px}
+.pthumb img{width:110px;height:80px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.pthumb label{display:flex;align-items:center;gap:5px;margin:0;font-weight:400;font-size:12px}
+
+@media(max-width:600px){
+  .pmbg{padding:10px}
+  .pm{max-height:calc(100vh - 20px);border-radius:16px}
+  .pmimg{max-height:46vh;border-radius:16px 16px 0 0}
+  .pmimg img{max-height:46vh}
+  .pmbody{padding:14px 16px 20px}
+  .pmbody h3{font-size:20px}
+  .pmactions{flex-direction:column}
+  .pmactions .btn{width:100%;justify-content:center}
+  .pmnav{width:40px;height:40px}
+}
+@media(prefers-reduced-motion:reduce){.pm,.pmbg{animation:none}.port-card{transition:none}}
+.pmbody .cat{display:block;font-size:12px;font-weight:600;color:var(--purple);margin-bottom:2px}
