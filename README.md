@@ -52,6 +52,15 @@ qualquer (vira Cliente) e depois com `gugoncalves326@gmail.com` ou
 `luanhenriquepassos09@gmail.com` (os dois viram Marketing/Admin
 automaticamente).
 
+## Celular
+
+O site e o painel funcionam em celular, tablet e computador. No celular, o
+menu do painel vira uma gaveta (botão ☰), a barra de cima (menu, busca e
+sino) fica fixa ao rolar, os formulários abrem como uma folha na base da
+tela, o Kanban de leads rola para o lado e as tabelas grandes rolam na
+horizontal. Testado de 320px (iPhone SE) até 1280px, sem rolagem lateral
+indevida.
+
 ## O que já funciona
 
 **Site público** (Home, Sobre, Serviços, Portfólio, Contato) — os textos,

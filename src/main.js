@@ -64,6 +64,8 @@ const state = {
   myProjects: [], // projetos do Cliente logado
   clientLoaded: false,
   _clientLoading: false,
+  navOpen: false,
+  sideOpen: false,
   authInfo: '',
   pendingEmail: '',
   recovering: false,
@@ -1000,16 +1002,18 @@ function headerTools() {
 
 function header(active) {
   const link = (v, label) => `<a class="${active === v ? 'active' : ''}" data-nav="${v}">${label}</a>`;
-  const accountArea = isClientSession()
-    ? `${link('meuprojeto', 'Meus Projetos')}${link('propostas', 'Propostas')}${link('financeiro', 'Financeiro')}${link('chamados', 'Chamados')}${link('calendario', 'Calendário')}${link('solicitar', 'Solicitar Orçamento')}${headerTools()}<a class="btn ghost" data-nav="logout">Sair</a>`
+  const client = isClientSession();
+  const accountArea = client
+    ? `${link('meuprojeto', 'Meus Projetos')}${link('propostas', 'Propostas')}${link('financeiro', 'Financeiro')}${link('chamados', 'Chamados')}${link('calendario', 'Calendário')}${link('solicitar', 'Solicitar Orçamento')}<a class="btn ghost" data-nav="logout">Sair</a>`
     : `<a class="btn purple" data-nav="contato">Solicitar orçamento</a><a class="btn ghost" data-nav="entrar">Entrar</a>`;
   return `<header class="site"><div class="wrap navrow">
     <a class="brand" data-nav="home">M.D<span class="dot"></span>Criações</a>
-    <nav class="links">
+    <nav class="links ${state.navOpen ? 'open' : ''}">
       ${link('home', 'Home')}${link('sobre', 'Sobre')}${link('servicos', 'Serviços')}${link('portfolio', 'Portfólio')}
       ${accountArea}
     </nav>
-    <button id="burger" data-burger>☰</button>
+    ${client ? `<div class="hdr-tools">${headerTools()}</div>` : ''}
+    <button id="burger" data-burger aria-label="Abrir menu">${state.navOpen ? '✕' : '☰'}</button>
   </div></header>`;
 }
 
@@ -2107,7 +2111,8 @@ function renderDashboard() {
 
   document.getElementById('app').innerHTML = `
   <div class="dash-shell">
-    <div class="dash-side">
+    <div class="dash-overlay ${state.sideOpen ? 'open' : ''}" data-close-side></div>
+    <div class="dash-side ${state.sideOpen ? 'open' : ''}">
       <div class="logo">M.D Criações</div>
       <nav>
         ${nav.map(([k, l]) => `<a class="${state.dashView === k ? 'active' : ''}" data-nav="${k}">${l}</a>`).join('')}
@@ -2116,7 +2121,10 @@ function renderDashboard() {
     </div>
     <div class="dash-main">
       <div class="dash-top">
-        <div><div class="small">${esc(state.profile.email)} — ${roleLabel}</div><h2 style="margin:0">${titles[state.dashView] || 'Dashboard'}</h2></div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <button class="dash-menu-btn" data-toggle-side aria-label="Abrir menu">☰</button>
+          <div style="min-width:0"><div class="small">${esc(state.profile.email)} — ${roleLabel}</div><h2 style="margin:0">${titles[state.dashView] || 'Dashboard'}</h2></div>
+        </div>
         <div class="dash-top-actions">
           <div class="notifwrap">
             <button class="notifbtn" data-toggle-search>🔍</button>
@@ -2201,7 +2209,18 @@ function setupEvents() {
     if (e.target.matches('[data-close-modal]')) { closeModal(); return; }
 
     const burger = e.target.closest('[data-burger]');
-    if (burger) { document.querySelector('.links')?.classList.toggle('open'); return; }
+    if (burger) {
+      state.navOpen = !state.navOpen;
+      document.querySelector('nav.links')?.classList.toggle('open', state.navOpen);
+      burger.textContent = state.navOpen ? '✕' : '☰';
+      return;
+    }
+    if (e.target.closest('[data-toggle-side]') || e.target.closest('[data-close-side]')) {
+      state.sideOpen = !state.sideOpen && !!e.target.closest('[data-toggle-side]');
+      document.querySelector('.dash-side')?.classList.toggle('open', state.sideOpen);
+      document.querySelector('.dash-overlay')?.classList.toggle('open', state.sideOpen);
+      return;
+    }
 
     const authBtn = e.target.closest('[data-authmode]');
     if (authBtn) { state.authMode = authBtn.dataset.authmode; state.authError = ''; state.authInfo = ''; render(); return; }
@@ -2416,6 +2435,8 @@ function setupEvents() {
       if (nav.dataset.authmodeTarget) { state.authMode = nav.dataset.authmodeTarget; state.authError = ''; }
       state.notifOpen = false;
       state.searchOpen = false;
+      state.navOpen = false;
+      state.sideOpen = false;
       const isStaff = state.session && state.profile && (state.profile.role === 'marketing' || state.profile.role === 'programador');
       if (isStaff) {
         state.dashView = v;
